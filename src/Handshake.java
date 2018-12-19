@@ -1,4 +1,3 @@
-import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
@@ -11,7 +10,7 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
 
-public class Handshake {
+class Handshake {
     /* Static data -- replace with handshake! */
 
     /* Where the client forwarder forwards data from  */
@@ -31,8 +30,7 @@ public class Handshake {
     private SessionEncrypter encrypter;
     private SessionDecrypter decrypter;
 
-    private X509Certificate clientCert;
-    private X509Certificate serverCert;
+    private X509Certificate storedClientCert;
 
     private CertificateFactory certFact = CertificateFactory.getInstance("X.509");
 
@@ -41,38 +39,37 @@ public class Handshake {
 
     void clientHello(String clientCertName, Socket socket) throws IOException, CertificateException {
         HandshakeMessage clientHello = new HandshakeMessage();
-        InputStream inputStream = new FileInputStream(clientCertName);
-        clientCert = (X509Certificate)certFact.generateCertificate(inputStream);
-        String clientCertBase64EncodedString = Base64.getEncoder().encodeToString(clientCert.getEncoded());
-        clientHello.putParameter("MessageType", "clientHello");
-        clientHello.putParameter("Certificate", clientCertBase64EncodedString);
+        X509Certificate clientCert = (X509Certificate)certFact.generateCertificate(new FileInputStream(clientCertName));
+        clientHello.putParameter("MessageType", "ClientHello");
+        clientHello.putParameter("Certificate", Base64.getEncoder().encodeToString(clientCert.getEncoded()));
         System.out.println("Saying hello to server");
         clientHello.send(socket);
     }
 
-    public void serverHello(String serverCertName, String CACertName, Socket socket) throws Exception {
+    void serverHello(String servCertName, String CACertName, Socket socket) throws Exception {
         HandshakeMessage serverHello = new HandshakeMessage();
         HandshakeMessage fromClient = new HandshakeMessage();
         System.out.println("Waiting for client to say hello...");
         fromClient.recv(socket);
-        if (fromClient.getParameter("MessageType").equals("clientHello")) {
-            System.out.println("Received client hello! Saying hello back");
+        if (fromClient.getParameter("MessageType").equals("ClientHello")) {
+            System.out.println("Received client hello! Verifying certificates...");
 
-            //Get the client cert
+            //Retrieve client cert
             byte[] clientCertAsBytes = Base64.getDecoder().decode(fromClient.getParameter("Certificate"));
             InputStream clientCertInputStream = new ByteArrayInputStream(clientCertAsBytes);
-            clientCert = (X509Certificate) certFact.generateCertificate(clientCertInputStream);
+            X509Certificate clientCert = (X509Certificate) certFact.generateCertificate(clientCertInputStream);
 
-            //Make the CAcert
-            InputStream CAcertStream = new FileInputStream(CACertName);
-            X509Certificate CAcert = (X509Certificate) certFact.generateCertificate(CAcertStream);
+            //Simulate the server storing the client cert for use in sessionMessage().
+            storedClientCert = clientCert;
 
-            //Verify
+            //Fetch the CA cert
+            X509Certificate CAcert = (X509Certificate) certFact.generateCertificate(new FileInputStream(CACertName));
+
+            //Verify the user with CA cert
             new VerifyCertificate(CAcert, clientCert).testValidity();
 
             //Make the serverCert
-            InputStream serverCertStream = new FileInputStream(serverCertName);
-            serverCert = (X509Certificate) certFact.generateCertificate(serverCertStream);
+            X509Certificate serverCert = (X509Certificate) certFact.generateCertificate(new FileInputStream(servCertName));
 
             serverHello.putParameter("MessageType", "ServerHello");
             serverHello.putParameter("Certificate", Base64.getEncoder().encodeToString(serverCert.getEncoded()));
@@ -83,7 +80,7 @@ public class Handshake {
         }
     }
 
-    public void forwardMessage(String targetHost, String targetPort, String CACertName, Socket socket) throws Exception {
+    void forwardMessage(String targetHost, String targetPort, String CACertName, Socket socket) throws Exception {
         HandshakeMessage forwardMessage = new HandshakeMessage();
         HandshakeMessage fromServer = new HandshakeMessage();
         System.out.println("Awaiting hello from Server...");
@@ -93,15 +90,17 @@ public class Handshake {
 
             System.out.println("Server said hello! Verifying certificates...");
 
-            byte[] serverCertAsBytes = Base64.getDecoder().decode(fromServer.getParameter("Certificate"));
-            InputStream serverCertStream = new ByteArrayInputStream(serverCertAsBytes);
-            serverCert = (X509Certificate) certFact.generateCertificate(serverCertStream);
-            InputStream CAcertInputStream = new FileInputStream(CACertName);
-            X509Certificate CAcert = (X509Certificate) certFact.generateCertificate(CAcertInputStream);
-            new VerifyCertificate(CAcert, serverCert).testValidity();
+            //Retrieve server cert
+            byte[] servCertBytes = Base64.getDecoder().decode(fromServer.getParameter("Certificate"));
+            X509Certificate servCert = (X509Certificate) certFact.generateCertificate(new ByteArrayInputStream(servCertBytes));
+
+            //Fetch the CA cert
+            X509Certificate CAcert = (X509Certificate) certFact.generateCertificate(new FileInputStream(CACertName));
+
+            //Verify the server with the CA cert
+            new VerifyCertificate(CAcert, servCert).testValidity();
 
             System.out.println("Sending target information");
-
             forwardMessage.putParameter("MessageType", "Forward");
             forwardMessage.putParameter("TargetHost", targetHost);
             forwardMessage.putParameter("TargetPort", targetPort);
@@ -112,14 +111,14 @@ public class Handshake {
         }
     }
 
-    public void sessionMessage(String serverHost, String serverPort, int keyLength, Socket socket) throws Exception {
+    void sessionMessage(String serverHost, String serverPort, int keyLength, Socket socket) throws Exception {
         HandshakeMessage sessionMessage = new HandshakeMessage();
         HandshakeMessage fromClient = new HandshakeMessage();
-        System.out.println("Awaiting session information from client...");
+        System.out.println("Awaiting target information from client...");
         fromClient.recv(socket);
         if (fromClient.getParameter("MessageType").equals("Forward")) {
 
-            System.out.println("Session information received!");
+            System.out.println("Target information received!");
 
             //Get target information
             targetHost = fromClient.getParameter("TargetHost");
@@ -131,12 +130,12 @@ public class Handshake {
             decrypter = new SessionDecrypter(sessionKey,IV);
 
             //Encrypt the generated symmetric session key and IV with clients public key
-            Cipher cipher = Cipher.getInstance("RSA");
-            cipher.init(Cipher.ENCRYPT_MODE, clientCert.getPublicKey());
-            byte[] encryptedSessionKeyAsBytes = cipher.doFinal(sessionKey.encodeKey().getBytes());
-            byte[] encryptedIVAsBytes = cipher.doFinal(IV.getIV());
+            PublicKey pubKey = storedClientCert.getPublicKey();
+            byte[] encryptedSessionKeyAsBytes = HandshakeCrypto.encrypt((sessionKey.encodeKey().getBytes()),pubKey);
+            byte[] encryptedIVAsBytes = HandshakeCrypto.encrypt(IV.getIV(),pubKey);
 
-            System.out.println("Sending final connection information");
+            System.out.println("Sending session connection information");
+
             //Return the information for the next connection
             sessionMessage.putParameter("MessageType", "Session");
             sessionMessage.putParameter("SessionKey", Base64.getEncoder().encodeToString(encryptedSessionKeyAsBytes));
@@ -146,28 +145,26 @@ public class Handshake {
             sessionMessage.send(socket);
 
         } else {
-            System.out.println("Wrong type of parameter, expected Forward.");
+            System.out.println("ERROR: MessageType != Forward");
             socket.close();
         }
     }
 
-    public void finishHandshake(Socket socket, String clientPrivateKeyName) throws Exception {
+    void finishHandshake(Socket socket, String clientPrivateKeyName) throws Exception {
         HandshakeMessage fromServer = new HandshakeMessage();
         System.out.println("Awaiting new socket information...");
         fromServer.recv(socket);
         if (fromServer.getParameter("MessageType").equals("Session")) {
-            System.out.println("Received final socket! initializing encryption tools...");
+            System.out.println("Received session socket! initializing encryption tools");
 
-            //Data socket
+            //Session socket
             serverHost = fromServer.getParameter("ServerHost");
             serverPort = Integer.parseInt(fromServer.getParameter("ServerPort"));
 
             //Decrypt session encryption info
-            PrivateKey clientsPrivateKey = HandshakeCrypto.getPrivateKeyFromKeyFile(clientPrivateKeyName);
-            Cipher cipher = Cipher.getInstance("RSA");
-            cipher.init(Cipher.DECRYPT_MODE, clientsPrivateKey);
-            byte[] receivedSessionKey = cipher.doFinal(Base64.getDecoder().decode(fromServer.getParameter("SessionKey")));
-            byte[] receivedIV = cipher.doFinal(Base64.getDecoder().decode(fromServer.getParameter("SessionIV")));
+            PrivateKey privKey = HandshakeCrypto.getPrivateKeyFromKeyFile(clientPrivateKeyName);
+            byte[] receivedSessionKey = HandshakeCrypto.decrypt(Base64.getDecoder().decode(fromServer.getParameter("SessionKey")),privKey);
+            byte[] receivedIV = HandshakeCrypto.decrypt(Base64.getDecoder().decode(fromServer.getParameter("SessionIV")),privKey);
 
             encrypter = new SessionEncrypter(new SessionKey(receivedSessionKey),receivedIV);
 
@@ -178,27 +175,27 @@ public class Handshake {
         }
     }
 
-    public String getTargetHost(){
+    String getTargetHost(){
         return targetHost;
     }
 
-    public int getTargetPort(){
+    int getTargetPort(){
         return targetPort;
     }
 
-    public String getServerHost(){
+    String getServerHost(){
         return serverHost;
     }
 
-    public int getServerPort(){
+    int getServerPort(){
         return serverPort;
     }
 
-    public SessionEncrypter getEncrypter(){
+    SessionEncrypter getEncrypter(){
         return encrypter;
     }
 
-    public SessionDecrypter getDecrypter(){
+    SessionDecrypter getDecrypter(){
         return decrypter;
     }
 

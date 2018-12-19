@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
 
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.net.InetAddress;
 import java.net.Socket;
@@ -19,19 +18,19 @@ import java.util.Properties;
  * Extends Properties class.
  */
 
-public class HandshakeMessage extends Properties {
+class HandshakeMessage extends Properties {
     
     /*
      * Get the value of a parameter 
      */
-    public String getParameter(String param) {
+    String getParameter(String param) {
         return this.getProperty(param);
     }
 
     /* 
      * Assign a parameter 
      */
-    public void putParameter(String param, String value) {
+    void putParameter(String param, String value) {
         this.put(param, value);
     }
 
@@ -45,7 +44,7 @@ public class HandshakeMessage extends Properties {
      * Prepend the byte array with an integer string with the length of the string. 
      * The integer string is terminated by a whitespace.
      */
-    public void send(Socket socket) throws IOException {
+    void send(Socket socket) throws IOException {
         ByteArrayOutputStream byteOutputStream = new ByteArrayOutputStream();
         String comment = "From " + InetAddress.getLocalHost() + ":" + socket.getLocalPort() +
             " to " + socket.getInetAddress().getHostAddress() + ":" + socket.getPort();
@@ -64,7 +63,7 @@ public class HandshakeMessage extends Properties {
      * which gives the size of the message in bytes. Then read the XML data
      * and convert it to a HandshakeMessage.
      */
-    public void recv(Socket socket) throws IOException {
+    void recv(Socket socket) throws IOException {
         int length = 0;
         for (int n = socket.getInputStream().read(); !Character.isWhitespace(n); n = socket.getInputStream().read()) {
             length = length*10 + Character.getNumericValue(n);
@@ -77,4 +76,4 @@ public class HandshakeMessage extends Properties {
         this.loadFromXML(new ByteArrayInputStream(data));
     }
 
-};
+}

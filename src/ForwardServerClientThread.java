@@ -22,7 +22,6 @@ import java.io.OutputStream;
 
 public class ForwardServerClientThread extends Thread
 {
-    private ForwardClient mForwardClient = null;
     private Socket mClientSocket = null;
     private Socket mServerSocket = null;
     private ServerSocket mListenSocket = null;

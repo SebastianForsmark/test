@@ -1,6 +1,6 @@
 /**
  * Port forwarding server. Forward data
- * between two TCP ports. Based on Nakov TCP Socket Forward Server 
+ * between two TCP ports. Based on Nakov TCP Socket Forward Server
  * and adapted for IK2206.
  *
  * Original copyright notice below.
@@ -20,9 +20,9 @@ import java.net.Socket;
 public class ForwardServer
 {
     private static final boolean ENABLE_LOGGING = true;
-    public static final int DEFAULTSERVERPORT = 2206;
-    public static final String DEFAULTSERVERHOST = "localhost";
-    public static final String PROGRAMNAME = "ForwardServer";
+    private static final int DEFAULTSERVERPORT = 2206;
+    private static final String DEFAULTSERVERHOST = "localhost";
+    private static final String PROGRAMNAME = "ForwardServer";
     private static Arguments arguments;
 
 
@@ -54,7 +54,7 @@ public class ForwardServer
     /**
      * Starts the forward server - binds on a given port and starts serving
      */
-    public void startForwardServer() throws Exception {
+    private void startForwardServer() throws Exception {
         // Bind server on given TCP port
         int port = Integer.parseInt(arguments.get("handshakeport"));
         try {
@@ -90,36 +90,21 @@ public class ForwardServer
         String clientHostPort = clientSocket.getInetAddress().getHostAddress() + ":" + clientSocket.getPort();
         Logger.log("Incoming handshake connection from " + clientHostPort);
 
+        //Create the socket here to send to client
+        listenSocket = new ServerSocket();
+        listenSocket.bind(null);
+
         /* This is where the handshake should take place */
         Handshake handshake = new Handshake();
         handshake.serverHello(arguments.get("usercert"), arguments.get("cacert"), clientSocket);
-
-        listenSocket = new ServerSocket(); //Create the socket here to send to client
-        listenSocket.bind(null);
         handshake.sessionMessage(listenSocket.getInetAddress().getHostAddress(), String.valueOf(listenSocket.getLocalPort()), 128, clientSocket);
-
         clientSocket.close();
 
-
-        /*
-         * Fake the handshake result with static parameters.
-         */
-
-        /* listenSocket is a new socket where the ForwardServer waits for the
-         * client to connect. The ForwardServer creates this socket and communicates
-         * the socket's address to the ForwardClient during the handshake, so that the
-         * ForwardClient knows to where it should connect (ServerHost/ServerPort parameters).
-         * Here, we use a static address instead (serverHost/serverPort).
-         * (This may give "Address already in use" errors, but that's OK for now.)
-         */
+        //Take the information gained from the handshake
         decrypter = handshake.getDecrypter();
         targetHost = handshake.getTargetHost();
         targetPort = handshake.getTargetPort();
         System.out.println("Ready for connection on port:" + String.valueOf(listenSocket.getLocalPort()));
-
-        /* The final destination. The ForwardServer sets up port forwarding
-         * between the listensocket (ie., ServerHost/ServerPort) and the target.
-         */
 
     }
 
